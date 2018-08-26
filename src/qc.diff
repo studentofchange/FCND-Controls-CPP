@@ -1,0 +1,123 @@
+14a15,20
+> //#define USE_YAW 1
+> //#define USE_PITCH_ROLL 1
+> //#define USE_BODY_RATE 1
+> //#define USE_ATTITDUE 1
+> //#define USE_LATERAL 1
+> 
+73,76c79,117
+<   cmd.desiredThrustsN[0] = mass * 9.81f / 4.f; // front left
+<   cmd.desiredThrustsN[1] = mass * 9.81f / 4.f; // front right
+<   cmd.desiredThrustsN[2] = mass * 9.81f / 4.f; // rear left
+<   cmd.desiredThrustsN[3] = mass * 9.81f / 4.f; // rear right
+---
+>   // [ [     1      1     1      1  ]   [ F1     =    [ Ftotal
+>   //   [     l     -l    -l      l  ]     F2            TAUx
+>   //   [     l      l    -l     -l  ]     F3            TAUy
+>   //   [ km/kf -km/kf km/kf -km/kf  ] ]   F4 ]          TAUz    ]
+>   //
+>   // A f = t
+>   // f = inv(A) * t
+>   //
+>   // F1 = Ftotal - F2 - F3 -F4
+>   //
+>   // [ [      -2l     -2l        0  ]   [ F2     =   [ TAUx - Ftotal * l
+>   //   [        0     -2l      -2l  ]     F3           TAUy - Ftotal * l
+>   //   [ -2*km/kf       0 -2*km/kf  ] ]   F4 ]         TAUz - Ftotal*km/kf   ]
+> 
+>   // Mat3x3F A  = {      2*this->L, -2*this->L,              0,
+>   //                             0, -2*this->L,     -2*this->L,
+>   //                -2*this->kappa,          0, -2*this->kappa };
+>   Mat3x3F A;
+>   float ainit[] = {   2.0, -2.0,  0.0,
+>                       0.0, -2.0, -2.0,
+>                      -2.0,  0.0, -2.0  };
+>   A.SetValues( ainit );
+>   V3F Am     = { this->L, this->L, this->kappa } ;
+>       A      = A.Cross(Am, 1);
+> 
+>   V3F tminus = { this->L, this->L, this->kappa };
+>   V3F t      = momentCmd - tminus * collThrustCmd;
+>   V3F f_soln = A.Inverse() * t;
+>   float F2   = f_soln[0];
+>   float F3   = f_soln[1];
+>   float F4   = f_soln[2];
+>   float F1   = collThrustCmd - F2 - F3 - F4;
+> 
+>   cmd.desiredThrustsN[0] = F1; // mass * 9.81f / 4.f; // front left
+>   cmd.desiredThrustsN[1] = F2; // mass * 9.81f / 4.f; // front right
+>   cmd.desiredThrustsN[2] = F3; // mass * 9.81f / 4.f; // rear left
+>   cmd.desiredThrustsN[3] = F4; // mass * 9.81f / 4.f; // rear right
+> 
+>  // cmd.desiredThrustsN <<  F1 <<  F2 <<  F3 << F4 ;
+98a140
+> 
+101c143,148
+<   
+---
+> #ifdef USE_BODY_RATE
+>   V3F pqr_error = pqrCmd - pqr;
+>   V3F u_bar_pqr = pqr_error * this->kpPQR;
+>   V3F I_moments = { this->Ixx, this->Iyy, this->Izz };
+>   momentCmd     = u_bar_pqr * I_moments;
+> #endif
+132c179,188
+< 
+---
+> #ifdef USE_PITCH_ROLL
+>   float acc     = - collThrustCmd / this->mass;
+>   float bxc_dot = this->kpBank * (accelCmd[0] - R(0, 2) * acc);
+>   float byc_dot = this->kpBank * (accelCmd[1] - R(1, 2) * acc);
+>   float p_c     = (R(1, 0) * bxc_dot - R(0, 0) * byc_dot ) / R(2, 2);
+>   float q_c     = (R(1, 1) * bxc_dot - R(0, 1) * byc_dot ) / R(2, 2);
+>   pqrCmd[0] = p_c;
+>   pqrCmd[1] = q_c;
+>   pqrCmd[2] = 0.0;
+> #endif
+150c206
+<   //   return a collective thrust command in [N]
+---
+>   //   return a collective thrust command in [N]yawRateCmd
+162a219
+> #define max(a,b) ((a>b)?a:b)
+163a221,226
+> #ifdef USE_ATTITDUE
+>   float posZErr    = posZCmd - posZ;
+>   float velZtarget = (velZCmd > 0)? max(velZCmd, maxDescentRate) : max(velZCmd, -maxAscentRate);
+>   float velZErr    = velZtarget - velZ;
+>   float u_bar_1    = this->kpPosZ * posZErr + this->kpVelZ * velZErr + accelZCmd;
+>   thrust           = this->mass * (u_bar_1 - CONST_GRAVITY ) / R(2,2);
+164a228,229
+>   ///// missing time step dt ?
+> #endif
+190c255
+<   // make sure we don't have any incoming z-component
+---
+>   // make sure we don't have any incoming z-componentyawRateCmd
+200a266,267
+> #define maxa(a,b) ((abs(a)>b)?abs(a):b)
+> #define sign(a)   ((a>0)?1:-1)
+201a269,278
+> #ifdef USE_LATERAL
+>   velCmd[0]    = sign(velCmd[0]) * maxa(velCmd[0], this->maxSpeedXY);
+>   velCmd[1]    = sign(velCmd[1]) * maxa(velCmd[1], this->maxSpeedXY);
+>   accelCmd[0]  = sign(accelCmd[0]) * maxa(accelCmd[0], this->maxAccelXY);
+>   accelCmd[1]  = sign(accelCmd[1]) * maxa(accelCmd[1], this->maxAccelXY);
+> 
+>   V3F posErr   = posCmd - pos;
+>   V3F velErr   = velCmd - vel;
+>   accelCmd     = this->kpPosXY * posErr + this->kpVelXY * velErr + accelCmd;
+> #endif
+220c297
+<   //  - use the yaw control gain parameter kpYaw
+---
+>   //  - use the yaw control gain parameter kpYawhis->estOmega[2] - (this->Iyy - this->Ixx)
+224,225c301,305
+< 
+< 
+---
+> #ifdef USE_YAW
+>   yawCmd = fmodf(yawCmd, F_PI);
+>   yaw    = fmodf(yaw, F_PI);
+>   yawRateCmd      = this->kpYaw * (yawCmd - yaw);
+> #endif

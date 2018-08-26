@@ -12,8 +12,8 @@
 #include "Trajectory.h"
 #include "BaseController.h"
 #include "Math/Mat3x3F.h"
-//#include "Math/MathUtils.h"   // ******************************
-//#include "Math/V4D.h"         // ******************************
+#include "Math/MathUtils.h"   // ******************************
+#include "Math/V4D.h"         // ******************************
 
 #ifdef __PX4_NUTTX
 #include <systemlib/param/param.h>
@@ -22,25 +22,24 @@
 #include <iostream>
 
 #define USE_GEN_MOTOR 1
-#define DEBUG_GEN_MOTOR 1
+//#define DEBUG_GEN_MOTOR 1
 
 #define USE_BODY_RATE 1
 //#define DEBUG_BODY_RATE 1
 
-#define USE_PITCH_ROLL 1
+//#define USE_PITCH_ROLL 1
 //#define DEBUG_PITCH_ROLL 1
 
-#define USE_ALTITUDE 1
+///#define USE_ALTITUDE 1
 //#define DEBUG_ALTITUDE 1
 
-#define USE_LATERAL 1
+///#define USE_LATERAL 1
 //#define DEBUG_LATERAL 1
 
-#define USE_YAW 1
+///#define USE_YAW 1
 //#define DEBUG_YAW 1
 
 
-#ifdef NEED_HELPER
 //////////////////////////////////////////////////
 // helper function to invert a 4x4 matrix
 //////////////////////////////////////////////////
@@ -94,7 +93,6 @@ bool inverseMatrix4x4(const float *m, float *out)
     return true;
 
 }
-#endif
 
 
 //////////////////////////////////////////////////
@@ -213,106 +211,64 @@ VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momen
   float soln[4] = { 0.f, 0.f, 0.f, 0.f };
   float l     = this->L;
   float k     = this->kappa;
+  float M[16] = { 1.0, 1.0, 1.0, 1.0,
+                    l,  -l,  -l,   l,
+                    l,   l,  -l,  -l,
+                    k,  -k,   k,  -k };
+  float Minv[16];
+  inverseMatrix4x4( M, Minv );
 
-//
-// IMPLEMENTATION #1 (solve system of 4 eqns), not used here
-//
-//  float M[16] = {          1.0,          1.0,          1.0,          1.0,
-//                    l/sqrtf(2),  -l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),
-//                    l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),  -l/sqrtf(2),
-//                            -k,            k,            k,           -k };
-//  float Minv[16];
-//  inverseMatrix4x4( M, Minv );
-//
-//  float MCinvp[16] = { 1./4.,   1./2./sqrtf(2.)/l,   1./2./sqrtf(2.)/l,  -1./4./k,
-//                       1./4.,  -1./2./sqrtf(2.)/l,   1./2./sqrtf(2.)/l,   1./4./k,
-//                       1./4.,   1./2./sqrtf(2.)/l,  -1./2./sqrtf(2.)/l,   1./4./k,
-//                       1./4.,  -1./2./sqrtf(2.)/l,  -1./2./sqrtf(2.)/l,  -1./4./k };
-
-                                    // [ [       1        1        1        1  ]   [ F1  =  [ Ftotal
-                                    //   [ l/sq(2) -1/sq(2)  1/sq(2) -l/sq(2)  ]     F2       TAUx
-                                    //   [ l/sq(2)  l/sq(2) -1/sq(2) -l/sq(2)  ]     F3       TAUy
-                                    //   [ -km/kf     km/kf    km/kf   -km/kf  ] ]   F4 ]     TAUz   ]
-                                    //
-                                    //  F1         + F2         + F3         + F4         = Ftotal
-                                    //  F1*l/sq(2) - F2*l/sq(2) + F3*l/sq(2) - F4*l/sq(2) = TAUx
-                                    //  F1*l/sq(2) + F2*l/sq(2) - F3*l/sq(2) - F4*l/sq(2) = TAUy
-                                    // -F1*k       + F2*k       + F3*k       - F4*k       = TAUz
-                                    //
-                                    // A f = t
-                                    // f = inv(A) * t
-                                    // 
-
-//  float Ftotal = collThrustCmd;
-//  V4D Forces( {Ftotal, momentCmd.x, momentCmd.y, momentCmd.z } );
-//  V4D x;
-//  for (int i = 0; i < 4; i++) {
-//    int j = 4*i;
-//    x = { Minv[j], Minv[j+1], Minv[j+2], Minv[j+3] };
-//    soln[i] = sum( element_prod( x, Forces ) );
-//  }
-//
-  // inverse method 1
-//  float F1   = soln[0];
-//  float F2   = soln[1];
-//  float F3   = soln[2];
-//  float F4   = soln[3];
-
+  // [ [     1      1     1      1  ]   [ F1     =    [ Ftotal
+  //   [     l     -l    -l      l  ]     F2            TAUx
+  //   [     l      l    -l     -l  ]     F3            TAUy
+  //   [ km/kf -km/kf km/kf -km/kf  ] ]   F4 ]          TAUz    ]
   //
-  // IMPLEMENTATION #2 (apply solved eqns)
-  // inverse method 2
+  // A f = t
+  // f = inv(A) * t
   //
-//  float lf         = L * 2.f * sqrtf(2) / 4.f;
-//  float F1_f_left  = (collThrustCmd + momentCmd.x/lf + momentCmd.y/lf - momentCmd.z/k) / 4.f;
-//  float F2_f_right = (collThrustCmd - momentCmd.x/lf + momentCmd.y/lf + momentCmd.z/k) / 4.f;
-//  float F3_r_right = (collThrustCmd + momentCmd.x/lf - momentCmd.y/lf + momentCmd.z/k) / 4.f;
-//  float F4_r_left  = (collThrustCmd - momentCmd.x/lf - momentCmd.y/lf - momentCmd.z/k) / 4.f;
+  // F1   + F2   + F3   + F4   = Ftotal
+  // F1   - F2*l - F3*l - F4*l = TAUx
+  // F1   + F2*l - F3*l - F4*l = TAUy
+  // F1*k - F2*k + F3*k - F4*k = TAUz
+  // 
 
+  float Ftotal = collThrustCmd;
+//  float Ftotal = collThrustCmd + mass * 9.81f;
+//        Ftotal = mass * 9.81f;
+  V4D Forces( {Ftotal, momentCmd[0], momentCmd[1], momentCmd[2] } );
+//  std::cout << "Forces " << Forces[0] << " " << Forces[1] << " " << Forces[2] << " " << Forces[3] << std::endl;
+  V4D x;
+  for (int i = 0; i < 4; i++) {
+    int j = 4*i;
+    x = { Minv[j], Minv[j+1], Minv[j+2], Minv[j+3] };
+//    std::cout << "j, x " << j << " " << x[0] << " " << x[1] << " " << x[2] << " " << x[3] << std::endl;
+    soln[i] = sum( element_prod( x, Forces ) );
+//    std::cout << "soln[i] " << i << " " << soln[i] << std::endl;
+  }
 
-  // FORCES:
-  V3F dThrust;
-  dThrust.x = momentCmd.x / (this->L * 2.f * sqrtf(2.f));
-  dThrust.y = momentCmd.y / (this->L * 2.f * sqrtf(2.f));
-  dThrust.z = momentCmd.z / (this->kappa * 4.f);
-
-  // MOTOR THRUSTS:
-  float F1_FRONT_LEFT   = collThrustCmd / 4.f + dThrust.x + dThrust.y - dThrust.z;
-  float F2_FRONT_RIGHT  = collThrustCmd / 4.f - dThrust.x + dThrust.y + dThrust.z;
-  float F3_REAR_RIGHT   = collThrustCmd / 4.f + dThrust.x - dThrust.y + dThrust.z;
-  float F4_REAR_LEFT    = collThrustCmd / 4.f - dThrust.x - dThrust.y - dThrust.z;
-
-//  float F1_FRONT_LEFT   = collThrustCmd / 4.f - dThrust.x + dThrust.y - dThrust.z;
-//  float F2_FRONT_RIGHT  = collThrustCmd / 4.f - dThrust.x - dThrust.y + dThrust.z;
-//  float F3_REAR_RIGHT   = collThrustCmd / 4.f + dThrust.x - dThrust.y + dThrust.z;
-//  float F4_REAR_LEFT    = collThrustCmd / 4.f + dThrust.x + dThrust.y - dThrust.z;
+  float F1   = soln[0]; // + mass * 9.81f / 4.f;
+  float F2   = soln[1]; // + mass * 9.81f / 4.f;
+  float F3   = soln[2]; // + mass * 9.81f / 4.f;
+  float F4   = soln[3]; // + mass * 9.81f / 4.f;
 #endif
 
 #ifdef DEBUG_GEN_MOTOR2
-//  std::cout << "Forces " << Forces[0] << " " << Forces[1] << " " << Forces[2] << " " << Forces[3] << std::endl;
-//  print4x4("M ", M);
-//  print4x4("Minv ", Minv);
-
-  std::cout << "F'SOLN: " << collThrustCmd << " FL " << F1_FRONT_LEFT <<  " FR " << F2_FRONT_RIGHT 
-            << " RR " <<  F3_REAR_RIGHT << " RL " <<  F4_REAR_LEFT << std::endl;
-  std::cout << "F'calc: " << collThrustCmd << " fl " << F1_f_left <<  " fr " << F2_f_right 
-            << " rr " <<  F3_r_right << " rl " <<  F4_r_left << std::endl;
-  std::cout << "Computed F's: " << collThrustCmd << " " << Ftotal << " " <<  F1 <<  " " << F2 
-            << " " <<  F3 << " " <<  F4 << std::endl;
+  std::cout << "Forces " << Forces[0] << " " << Forces[1] << " " << Forces[2] << " " << Forces[3] << std::endl;
+  print4x4("M ", M);
+  print4x4("Minv ", Minv);
+  std::cout << "Computed F's: " << collThrustCmd << " " << Ftotal << " " <<  F1 <<  " " << F2 << " " <<  F3 << " " <<  F4 << std::endl;
 #endif
 
 #ifdef USE_GEN_MOTOR
-  cmd.desiredThrustsN[0] = F1_FRONT_LEFT;
-  cmd.desiredThrustsN[1] = F2_FRONT_RIGHT;
-  cmd.desiredThrustsN[2] = F3_REAR_RIGHT;
-  cmd.desiredThrustsN[3] = F4_REAR_LEFT;
-
+  cmd.desiredThrustsN[0] = F1;
+  cmd.desiredThrustsN[1] = F2;
+  cmd.desiredThrustsN[2] = F3;
+  cmd.desiredThrustsN[3] = F4;
 //  cmd.desiredThrustsN[0] = CONSTRAIN(F1, this->minMotorThrust, this->maxMotorThrust);
 //  cmd.desiredThrustsN[1] = CONSTRAIN(F2, this->minMotorThrust, this->maxMotorThrust);
 //  cmd.desiredThrustsN[2] = CONSTRAIN(F3, this->minMotorThrust, this->maxMotorThrust);
 //  cmd.desiredThrustsN[3] = CONSTRAIN(F4, this->minMotorThrust, this->maxMotorThrust);
-//  std::cout << "      Computed F's: " << collThrustCmd << " " << Ftotal << " " <<  cmd.desiredThrustsN[0] 
-//            <<  " " << cmd.desiredThrustsN[1] << " " <<  cmd.desiredThrustsN[2] << " " 
-//            <<  cmd.desiredThrustsN[3] << std::endl;
+  std::cout << "      Computed F's: " << collThrustCmd << " " << Ftotal << " " <<  cmd.desiredThrustsN[0] <<  " " << cmd.desiredThrustsN[1] << " " <<  cmd.desiredThrustsN[2] << " " <<  cmd.desiredThrustsN[3] << std::endl;
 #endif
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
@@ -345,29 +301,27 @@ V3F QuadControl::BodyRateControl(V3F pqrCmd, V3F pqr)
   V3F I_moments = { this->Ixx, this->Iyy, this->Izz };
   momentCmd     = u_bar_pqr * I_moments;
 
+  float maxTorque     = this->kappa * maxMotorThrust; //  2 * (maxMotorThrust - minMotorThrust) * Ixx;
+  float momentNorm    = sqrt(momentCmd.x * momentCmd.x + momentCmd.y * momentCmd.y + momentCmd.z * momentCmd.z);
+  if (momentNorm > maxTorque) {
+    momentCmd = momentCmd * (maxTorque / momentNorm);
+#ifdef DEBUG_BODY_RATE
+    std::cout << "body rate maxTorque " << maxTorque << " " << momentNorm << " " << momentCmd.x << " " << momentCmd.y << " " << momentCmd.z << std::endl;
+#endif
+  }
+
 #endif
 
+#ifdef DEBUG_BODY_RATE
+  std::cout << "body rate pqrCmd " << pqrCmd.x << " " << pqrCmd.y << " " << pqrCmd.z << std::endl;
+  std::cout << "body rate pqr " << pqr.x << " " << pqr.y << " " << pqr.z << std::endl;
+  std::cout << "body rate pqr_error " << pqr_error.x << " " << pqr_error.y << " " << pqr_error.z << std::endl;
+  std::cout << "body rate ubar_pqr " << u_bar_pqr.x << " " << u_bar_pqr.y << " " << u_bar_pqr.z << std::endl;
+  std::cout << "body rate I_moments " << I_moments.x << " " << I_moments.y << " " << I_moments.z << std::endl;
+  std::cout << "body rate momentCmd " << momentCmd.x << " " << momentCmd.y << " " << momentCmd.z << std::endl;
+  std::cout << "body rate momentCmd[] " << momentCmd[0] << " " << momentCmd[1] << " " << momentCmd[2] << std::endl;
 
-//  float maxTorque     = this->kappa * maxMotorThrust; //  2 * (maxMotorThrust - minMotorThrust) * Ixx;
-//  float momentNorm    = sqrt(momentCmd.x * momentCmd.x + momentCmd.y * momentCmd.y + momentCmd.z * momentCmd.z);
-//  if (momentNorm > maxTorque) {
-//    momentCmd = momentCmd * (maxTorque / momentNorm);
-//#ifdef DEBUG_BODY_RATE
-//    std::cout << "body rate maxTorque " << maxTorque << " " << momentNorm << " " << momentCmd.x << " " << momentCmd.y << " " << momentCmd.z << std::endl;
-//#endif
-//  }
-//
-//
-//#ifdef DEBUG_BODY_RATE
-//  std::cout << "body rate pqrCmd " << pqrCmd.x << " " << pqrCmd.y << " " << pqrCmd.z << std::endl;
-//  std::cout << "body rate pqr " << pqr.x << " " << pqr.y << " " << pqr.z << std::endl;
-//  std::cout << "body rate pqr_error " << pqr_error.x << " " << pqr_error.y << " " << pqr_error.z << std::endl;
-//  std::cout << "body rate ubar_pqr " << u_bar_pqr.x << " " << u_bar_pqr.y << " " << u_bar_pqr.z << std::endl;
-//  std::cout << "body rate I_moments " << I_moments.x << " " << I_moments.y << " " << I_moments.z << std::endl;
-//  std::cout << "body rate momentCmd " << momentCmd.x << " " << momentCmd.y << " " << momentCmd.z << std::endl;
-//  std::cout << "body rate momentCmd[] " << momentCmd[0] << " " << momentCmd[1] << " " << momentCmd[2] << std::endl;
-//
-//#endif
+#endif
   
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
@@ -399,36 +353,34 @@ V3F QuadControl::RollPitchControl(V3F accelCmd, Quaternion<float> attitude, floa
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
-#ifdef DIFFTRY
+#ifdef USE_PITCH_ROLL
   if ( collThrustCmd <= 0.0 ) {
     pqrCmd.x  = 0.0;
     pqrCmd.y  = 0.0;
     pqrCmd.z  = 0.0;
   }
   else {
-    float acc     = collThrustCmd / this->mass;
+    float acc     = - collThrustCmd / this->mass;
 
     float bxc_dot = this->kpBank * (accelCmd.x  - R(0, 2) * acc);
     float byc_dot = this->kpBank * (accelCmd.y  - R(1, 2) * acc);
     float p_c     = (R(1, 0) * bxc_dot - R(0, 0) * byc_dot ) / R(2, 2);
     float q_c     = (R(1, 1) * bxc_dot - R(0, 1) * byc_dot ) / R(2, 2);
+
+#ifdef DIFFTRY
+    float tgtR13  = - CONSTRAIN( accelCmd.x / acc, -this->maxTiltAngle, this->maxTiltAngle);
+    float tgtR23  = - CONSTRAIN( accelCmd.y / acc, -this->maxTiltAngle, this->maxTiltAngle);
+
+    float p_c     = (-R(1, 0) * this->kpBank * (R(0,2) - tgtR13) + R(0, 0) * this->kpBank * (R(1,2) - tgtR23)) / R(2,2);
+    float q_c     = (-R(1, 1) * this->kpBank * (R(0,2) - tgtR13) + R(0, 1) * this->kpBank * (R(1,2) - tgtR23)) / R(2,2);
+#endif
+
+    pqrCmd.x  = p_c;
+    pqrCmd.y  = q_c;
+    pqrCmd.z  = 0.0;
   }
 #endif
 
-#ifdef USE_PITCH_ROLL
-  float tgtR13  = 0.0;
-  float tgtR23  = 0.0;
-
-  if ( collThrustCmd > 0.0 ) {
-    float acc = collThrustCmd / this->mass;
-    tgtR13    = - CONSTRAIN( accelCmd.x / acc, -this->maxTiltAngle, this->maxTiltAngle);
-    tgtR23    = - CONSTRAIN( accelCmd.y / acc, -this->maxTiltAngle, this->maxTiltAngle);
-  }
-
-  pqrCmd.x = (-R(1, 0) * kpBank * (R(0,2) - tgtR13) + R(0, 0) * kpBank * (R(1,2) - tgtR23)) / R(2,2);
-  pqrCmd.y = (-R(1, 1) * kpBank * (R(0,2) - tgtR13) + R(0, 1) * kpBank * (R(1,2) - tgtR23)) / R(2,2);
-
-#endif
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -461,18 +413,18 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
 #ifdef USE_ALTITUDE
-  float posZErr     = posZCmd - posZ;
-  float velZtarget  = kpPosZ * posZErr + velZCmd;
+  float posZErr    = posZCmd - posZ;
+  float velZtarget = this->kpPosZ * posZErr + velZCmd;
 
-  integratedAltitudeError += posZErr * dt;
+//  float velZtarget = this->kpPosZ * posZErr / dt + velZCmd;
+  ///// missing time step dt ?
 
   velZtarget = CONSTRAIN(velZtarget, -maxDescentRate, maxAscentRate);
 
   float velZErr    = velZtarget - velZ;
-  float accCmd     = kpVelZ * velZErr + KiPosZ * integratedAltitudeError + accelZCmd - 9.81f;//CONST_GRAVITY;
-  thrust           = - mass * accCmd / R(2,2);
-
-//  thrust           = CONSTRAIN(thrust, 0.0, maxMotorThrust);
+  float accCmd     = this->kpVelZ * velZErr + accelZCmd;
+  thrust           = this->mass * (accCmd - CONST_GRAVITY ) / R(2,2);
+  thrust           = CONSTRAIN(thrust, 0.0, maxMotorThrust);
 
 #endif
 
@@ -517,37 +469,28 @@ V3F QuadControl::LateralPositionControl(V3F posCmd, V3F velCmd, V3F pos, V3F vel
 #ifdef USE_LATERAL
 
   V3F posErr   = posCmd - pos;
-  velCmd      += kpPosXY * posErr;
+  V3F vCmd     = this->kpPosXY * posErr;
 
-//  V3F vCmd     = kpPosXY * posErr;
-//  float vNorm  = sqrt(vCmd.x *vCmd.x  + vCmd.y +vCmd.y );
-//  if (vNorm > this->maxSpeedXY) {
-//    vCmd.x  = vCmd.x  * this->maxSpeedXY / vNorm; 
-//    vCmd.y  = vCmd.y  * this->maxSpeedXY / vNorm; 
-//  }
-//  else {
-//    vCmd.x  = velCmd.x ;
-//    vCmd.y  = velCmd.y ;
-//  }
+  float vNorm  = sqrt(vCmd.x *vCmd.x  + vCmd.y +vCmd.y );
 
-  if (velCmd.mag() > maxSpeedXY)
-    velCmd = velCmd * maxSpeedXY / velCmd.mag();
+  if (vNorm > this->maxSpeedXY) {
+    vCmd.x  = vCmd.x  * this->maxSpeedXY / vNorm; 
+    vCmd.y  = vCmd.y  * this->maxSpeedXY / vNorm; 
+  }
+  else {
+    vCmd.x  = velCmd.x ;
+    vCmd.y  = velCmd.y ;
+  }
 
+  V3F velErr   = vCmd - vel;
+  accelCmd.x   = this->kpPosXY * posErr.x  + this->kpVelXY * velErr.x  + accelCmdFF.x ;
+  accelCmd.y   = this->kpPosXY * posErr.y  + this->kpVelXY * velErr.y  + accelCmdFF.y ;
 
-  V3F velErr   = velCmd - vel;
-  accelCmd    += kpVelXY * velErr;
-  if (accelCmd.mag() > maxAccelXY)
-    accelCmd = accelCmd * maxAccelXY / accelCmd.mag();
-
-//  accelCmd.x   = this->kpPosXY * posErr.x  + this->kpVelXY * velErr.x  + accelCmdFF.x ;
-//  accelCmd.y   = this->kpPosXY * posErr.y  + this->kpVelXY * velErr.y  + accelCmdFF.y ;
-//
-//  float accelNorm  = sqrt(accelCmd.x *accelCmd.x  + accelCmd.y +accelCmd.y );
-//  if (accelNorm > this->maxAccelXY) {
-//    accelCmd.x  = accelCmd.x  * this->maxAccelXY / accelNorm; 
-//    accelCmd.y  = accelCmd.y  * this->maxAccelXY / accelNorm; 
-//  }
-
+  float accelNorm  = sqrt(accelCmd.x *accelCmd.x  + accelCmd.y +accelCmd.y );
+  if (accelNorm > this->maxAccelXY) {
+    accelCmd.x  = accelCmd.x  * this->maxAccelXY / accelNorm; 
+    accelCmd.y  = accelCmd.y  * this->maxAccelXY / accelNorm; 
+  }
 
 #endif
   
@@ -575,14 +518,16 @@ float QuadControl::YawControl(float yawCmd, float yaw)
 
 #ifdef USE_YAW
 
-  float yawErr    = yawCmd - yaw;
-  yawErr          = fmodf(yawErr, 2.0f * F_PI);
-  if (yawErr > F_PI) 
-    yawErr = yawErr - 2.0f * F_PI;
-  else if (yawErr < -F_PI) 
-    yawErr = yawErr + 2.0f * F_PI;
+  yawCmd          = fmodf(yawCmd, 2.0*F_PI);
+//  yaw             = fmodf(yaw, 2.0*F_PI);
 
-  yawRateCmd      = kpYaw * yawErr;
+  float yawErr    = yawCmd - yaw;
+  if (yawErr > F_PI) 
+    yawErr = yawErr - 2.0*F_PI;
+  else if (yawErr < -F_PI) 
+    yawErr = yawErr + 2.0*F_PI;
+
+  yawRateCmd      = this->kpYaw * (yawCmd - yaw);
 
 #endif
 

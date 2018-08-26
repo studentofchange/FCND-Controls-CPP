@@ -39,7 +39,6 @@
 #define USE_YAW 1
 //#define DEBUG_YAW 1
 
-
 #ifdef NEED_HELPER
 //////////////////////////////////////////////////
 // helper function to invert a 4x4 matrix
@@ -95,7 +94,6 @@ bool inverseMatrix4x4(const float *m, float *out)
 
 }
 #endif
-
 
 //////////////////////////////////////////////////
 // print 3x3 matrix
@@ -214,20 +212,20 @@ VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momen
   float l     = this->L;
   float k     = this->kappa;
 
-//
-// IMPLEMENTATION #1 (solve system of 4 eqns), not used here
-//
-//  float M[16] = {          1.0,          1.0,          1.0,          1.0,
-//                    l/sqrtf(2),  -l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),
-//                    l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),  -l/sqrtf(2),
-//                            -k,            k,            k,           -k };
-//  float Minv[16];
-//  inverseMatrix4x4( M, Minv );
-//
-//  float MCinvp[16] = { 1./4.,   1./2./sqrtf(2.)/l,   1./2./sqrtf(2.)/l,  -1./4./k,
-//                       1./4.,  -1./2./sqrtf(2.)/l,   1./2./sqrtf(2.)/l,   1./4./k,
-//                       1./4.,   1./2./sqrtf(2.)/l,  -1./2./sqrtf(2.)/l,   1./4./k,
-//                       1./4.,  -1./2./sqrtf(2.)/l,  -1./2./sqrtf(2.)/l,  -1./4./k };
+									//
+									// IMPLEMENTATION #1 (solve system of 4 eqns), not used here
+									//
+									//  float M[16] = {          1.0,          1.0,          1.0,          1.0,
+									//                    l/sqrtf(2),  -l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),
+									//                    l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),  -l/sqrtf(2),
+									//                            -k,            k,            k,           -k };
+									//  float Minv[16];
+									//  inverseMatrix4x4( M, Minv );
+									//
+									//  float MCinvp[16] = { 1./4.,   1./2./sqrtf(2.)/l,   1./2./sqrtf(2.)/l,  -1./4./k,
+									//                       1./4.,  -1./2./sqrtf(2.)/l,   1./2./sqrtf(2.)/l,   1./4./k,
+									//                       1./4.,   1./2./sqrtf(2.)/l,  -1./2./sqrtf(2.)/l,   1./4./k,
+									//                       1./4.,  -1./2./sqrtf(2.)/l,  -1./2./sqrtf(2.)/l,  -1./4./k };
 
                                     // [ [       1        1        1        1  ]   [ F1  =  [ Ftotal
                                     //   [ l/sq(2) -1/sq(2)  1/sq(2) -l/sq(2)  ]     F2       TAUx
@@ -243,30 +241,30 @@ VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momen
                                     // f = inv(A) * t
                                     // 
 
-//  float Ftotal = collThrustCmd;
-//  V4D Forces( {Ftotal, momentCmd.x, momentCmd.y, momentCmd.z } );
-//  V4D x;
-//  for (int i = 0; i < 4; i++) {
-//    int j = 4*i;
-//    x = { Minv[j], Minv[j+1], Minv[j+2], Minv[j+3] };
-//    soln[i] = sum( element_prod( x, Forces ) );
-//  }
-//
-  // inverse method 1
-//  float F1   = soln[0];
-//  float F2   = soln[1];
-//  float F3   = soln[2];
-//  float F4   = soln[3];
+									//  float Ftotal = collThrustCmd;
+									//  V4D Forces( {Ftotal, momentCmd.x, momentCmd.y, momentCmd.z } );
+									//  V4D x;
+									//  for (int i = 0; i < 4; i++) {
+									//    int j = 4*i;
+									//    x = { Minv[j], Minv[j+1], Minv[j+2], Minv[j+3] };
+									//    soln[i] = sum( element_prod( x, Forces ) );
+									//  }
+									//
+									// inverse method 1
+									//  float F1   = soln[0];
+									//  float F2   = soln[1];
+									//  float F3   = soln[2];
+									//  float F4   = soln[3];
 
-  //
-  // IMPLEMENTATION #2 (apply solved eqns)
-  // inverse method 2
-  //
-//  float lf         = L * 2.f * sqrtf(2) / 4.f;
-//  float F1_f_left  = (collThrustCmd + momentCmd.x/lf + momentCmd.y/lf - momentCmd.z/k) / 4.f;
-//  float F2_f_right = (collThrustCmd - momentCmd.x/lf + momentCmd.y/lf + momentCmd.z/k) / 4.f;
-//  float F3_r_right = (collThrustCmd + momentCmd.x/lf - momentCmd.y/lf + momentCmd.z/k) / 4.f;
-//  float F4_r_left  = (collThrustCmd - momentCmd.x/lf - momentCmd.y/lf - momentCmd.z/k) / 4.f;
+									//
+									// IMPLEMENTATION #2 (apply solved eqns)
+									// inverse method 2
+									//
+									//  float lf         = L * 2.f * sqrtf(2) / 4.f;
+									//  float F1_f_left  = (collThrustCmd + momentCmd.x/lf + momentCmd.y/lf - momentCmd.z/k) / 4.f;
+									//  float F2_f_right = (collThrustCmd - momentCmd.x/lf + momentCmd.y/lf + momentCmd.z/k) / 4.f;
+									//  float F3_r_right = (collThrustCmd + momentCmd.x/lf - momentCmd.y/lf + momentCmd.z/k) / 4.f;
+									//  float F4_r_left  = (collThrustCmd - momentCmd.x/lf - momentCmd.y/lf - momentCmd.z/k) / 4.f;
 
 
   // FORCES:
@@ -281,10 +279,10 @@ VehicleCommand QuadControl::GenerateMotorCommands(float collThrustCmd, V3F momen
   float F3_REAR_RIGHT   = collThrustCmd / 4.f + dThrust.x - dThrust.y + dThrust.z;
   float F4_REAR_LEFT    = collThrustCmd / 4.f - dThrust.x - dThrust.y - dThrust.z;
 
-//  float F1_FRONT_LEFT   = collThrustCmd / 4.f - dThrust.x + dThrust.y - dThrust.z;
-//  float F2_FRONT_RIGHT  = collThrustCmd / 4.f - dThrust.x - dThrust.y + dThrust.z;
-//  float F3_REAR_RIGHT   = collThrustCmd / 4.f + dThrust.x - dThrust.y + dThrust.z;
-//  float F4_REAR_LEFT    = collThrustCmd / 4.f + dThrust.x + dThrust.y - dThrust.z;
+									//  float F1_FRONT_LEFT   = collThrustCmd / 4.f - dThrust.x + dThrust.y - dThrust.z;
+									//  float F2_FRONT_RIGHT  = collThrustCmd / 4.f - dThrust.x - dThrust.y + dThrust.z;
+									//  float F3_REAR_RIGHT   = collThrustCmd / 4.f + dThrust.x - dThrust.y + dThrust.z;
+									//  float F4_REAR_LEFT    = collThrustCmd / 4.f + dThrust.x + dThrust.y - dThrust.z;
 #endif
 
 #ifdef DEBUG_GEN_MOTOR2
@@ -469,7 +467,7 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
   velZtarget = CONSTRAIN(velZtarget, -maxDescentRate, maxAscentRate);
 
   float velZErr    = velZtarget - velZ;
-  float accCmd     = kpVelZ * velZErr + KiPosZ * integratedAltitudeError + accelZCmd - 9.81f;//CONST_GRAVITY;
+  float accCmd = kpVelZ * velZErr + KiPosZ * integratedAltitudeError + accelZCmd - (float)CONST_GRAVITY;
   thrust           = - mass * accCmd / R(2,2);
 
 //  thrust           = CONSTRAIN(thrust, 0.0, maxMotorThrust);

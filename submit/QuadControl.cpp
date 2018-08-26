@@ -40,7 +40,6 @@
 //#define DEBUG_YAW 1
 
 
-#ifdef NEED_HELPER
 //////////////////////////////////////////////////
 // helper function to invert a 4x4 matrix
 //////////////////////////////////////////////////
@@ -94,7 +93,6 @@ bool inverseMatrix4x4(const float *m, float *out)
     return true;
 
 }
-#endif
 
 
 //////////////////////////////////////////////////
@@ -469,7 +467,7 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
   velZtarget = CONSTRAIN(velZtarget, -maxDescentRate, maxAscentRate);
 
   float velZErr    = velZtarget - velZ;
-  float accCmd     = kpVelZ * velZErr + KiPosZ * integratedAltitudeError + accelZCmd - 9.81f;//CONST_GRAVITY;
+  float accCmd     = kpVelZ * velZErr + KiPosZ * integratedAltitudeError + accelZCmd - CONST_GRAVITY;
   thrust           = - mass * accCmd / R(2,2);
 
 //  thrust           = CONSTRAIN(thrust, 0.0, maxMotorThrust);

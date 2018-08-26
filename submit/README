@@ -1,0 +1,159 @@
+Udacity Flying Car Class
+Project 3, Controller
+August 12, 2018
+Waiming Mok
+
+
+IMPLEMENT BODY RATE CONTROLS
+----------------------------
+ This is implemented in BodyRateControl, in the #ifdef USE_BODY_RATE section.
+ 
+ This is a P-controller, with the error being the difference of the Commanded PQR vs the 
+ current PQR state. The computed result is multiplied with the current moments to get 
+ the comment commands.
+
+  V3F pqr_error = pqrCmd - pqr;
+  V3F u_bar_pqr = pqr_error * this->kpPQR;
+  V3F I_moments = { this->Ixx, this->Iyy, this->Izz };
+  momentCmd     = u_bar_pqr * I_moments;
+
+
+
+IMPLEMENT ROLL PITCH CONTROL 
+----------------------------
+ This is implemented in RollPitchControl, in the #ifdef USE_PITCH_ROLL section.
+
+ This involves converting the global frame attitude into a rotation matrix that
+ takes global frame acceleration commands and convert to body frame rolll and pitch rates.
+ Provided the thrust is positive, the acceleration is converted to tilt commands, constrained
+ by the max possible tilt angle.
+
+ The P-controller takes the error as the current roll/pitch values to the mapped tilt command
+ and converts to the x-roll and y-pitch commands.
+
+
+  float tgtR13  = 0.0;
+  float tgtR23  = 0.0;
+
+  if ( collThrustCmd > 0.0 ) {
+    float acc = collThrustCmd / this->mass;
+    tgtR13    = - CONSTRAIN( accelCmd.x / acc, -this->maxTiltAngle, this->maxTiltAngle);
+    tgtR23    = - CONSTRAIN( accelCmd.y / acc, -this->maxTiltAngle, this->maxTiltAngle);
+  }
+
+  pqrCmd.x = (-R(1, 0) * kpBank * (R(0,2) - tgtR13) + R(0, 0) * kpBank * (R(1,2) - tgtR23)) / R(2,2);
+  pqrCmd.y = (-R(1, 1) * kpBank * (R(0,2) - tgtR13) + R(0, 1) * kpBank * (R(1,2) - tgtR23)) / R(2,2);
+
+
+
+
+IMPLEMENT ALTITUDE-CONTROLLER
+-----------------------------
+ This is implemented in AltitudeControl,a in the #ifdef USE_ALTITUDE section.
+
+ This is a P-I controller, with error being the difference of the desired Z position vs the 
+ current Z-position.
+
+ The difference in the desired Z-position and the current position is fed into a P-controller to
+ generate the desired Z-velocity. This Z-velocity is constrained to max descent/ascent rates.
+ The error of the target velocity vs the current Z-velocity is fed a P-I controller
+ to compute the desired accleration. That acceleration subtracts out the gravitation acceleration.
+ The thurst is then computed from the desired acceleration
+
+
+  float posZErr     = posZCmd - posZ;
+  float velZtarget  = kpPosZ * posZErr + velZCmd;
+
+  integratedAltitudeError += posZErr * dt;
+
+  velZtarget = CONSTRAIN(velZtarget, -maxDescentRate, maxAscentRate);
+
+  float velZErr    = velZtarget - velZ;
+  float accCmd     = kpVelZ * velZErr + KiPosZ * integratedAltitudeError + accelZCmd - CONST_GRAVITY;
+  thrust           = - mass * accCmd / R(2,2);
+
+
+
+
+IMPLEMENT LATERAL POSITION CONTROL
+----------------------------------
+ This is implemented in LateralPostiion(), in the #ifdef USE_LATERAL section.
+ This has 2 P-controller:
+
+ 1) x-y position error is used to compute the target velocity in the x-y plane.
+    The magnitude of the target velocity (i.e. speed) is contrainted to maxSpeedXY.
+
+ 2) x-y velocity error (target vs current) is used to compute the x-y acceleration.
+    The target acceleration is constrained to maxAccelXY value.
+
+
+  V3F posErr   = posCmd - pos;
+  velCmd      += kpPosXY * posErr;
+
+  if (velCmd.mag() > maxSpeedXY)
+    velCmd = velCmd * maxSpeedXY / velCmd.mag();
+
+  V3F velErr   = velCmd - vel;
+  accelCmd    += kpVelXY * velErr;
+  if (accelCmd.mag() > maxAccelXY)
+    accelCmd = accelCmd * maxAccelXY / accelCmd.mag();
+
+
+
+IMPLEMENT YAW CONTROL
+---------------------
+ This is implemented in YawControl(), in the #ifdef USE_YAW section.
+ The yaw error is first computed and constrained to -pi to +pi.
+ A P-controller is then applied to get the yaw rate command.
+
+  float yawErr    = yawCmd - yaw;
+  yawErr          = fmodf(yawErr, 2.0f * F_PI);
+  if (yawErr > F_PI)
+    yawErr = yawErr - 2.0f * F_PI;
+  else if (yawErr < -F_PI)
+    yawErr = yawErr + 2.0f * F_PI;
+
+  yawRateCmd      = kpYaw * yawErr;
+
+
+
+IMPLEMENT CALCULATING THE MOTOR COMMANDS GIVEN COMMANDED THRUST AND MOMENTS
+---------------------------------------------------------------------------
+ This is implemented in GenerateMotorCommands(), in the #ifdef USE_GEN_MOTOR section.
+ There were 2 implementations. The first one uses the equation
+
+   M Fm = [totalThrust, momentX, momentY, momentZ]
+   and then solving for the Motor thrusts Fm by inverting the M matrix.
+   However, since A does not change, there is no need to repeating run this calculation
+   every time function is called, so the 2nd implementation by first solving
+   the above equation.
+
+   M has the form, l = L, k = kappa:
+
+    //  float M[16] = {          1.0,          1.0,          1.0,          1.0,
+    //                    l/sqrtf(2),  -l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),
+    //                    l/sqrtf(2),   l/sqrtf(2),  -l/sqrtf(2),  -l/sqrtf(2),
+    //                            -k,            k,            k,           -k };
+
+
+
+
+  V3F dThrust;
+  dThrust.x = momentCmd.x / (this->L * 2.f * sqrtf(2.f));
+  dThrust.y = momentCmd.y / (this->L * 2.f * sqrtf(2.f));
+  dThrust.z = momentCmd.z / (this->kappa * 4.f);
+
+  // MOTOR THRUSTS:
+  float F1_FRONT_LEFT   = collThrustCmd / 4.f + dThrust.x + dThrust.y - dThrust.z;
+  float F2_FRONT_RIGHT  = collThrustCmd / 4.f - dThrust.x + dThrust.y + dThrust.z;
+  float F3_REAR_RIGHT   = collThrustCmd / 4.f + dThrust.x - dThrust.y + dThrust.z;
+  float F4_REAR_LEFT    = collThrustCmd / 4.f - dThrust.x - dThrust.y - dThrust.z;
+
+
+
+FLIGHT EVALUATION
+-----------------
+ Attached are 5 snapshots of the flight of the quadcopter in the 5 scenarios.
+ All scenarios completed successfully per the required parameters.
+ I adjusted the various Kalman filter parameters until all 5 scenarios could successfully complete.
+
